@@ -18,11 +18,11 @@ import time
 import urllib
 import yaml
 
-import atproto
+#import atproto
 import bs4
 import feedparser
 import tweepy
-from mastodon import Mastodon, MastodonError
+#from mastodon import Mastodon, MastodonError
 
 
 # This is the regular expression that selects the papers of interest
