@@ -27,14 +27,9 @@ from mastodon import Mastodon, MastodonError
 
 # This is the regular expression that selects the papers of interest
 regex = re.compile(r"""
-  (   \b(MOF|MOFs|COF|COFs|ZIF|ZIFs)\b
-    | metal.organic.framework
-    | covalent.organic.framework
-    | metal–organic.framework
-    | covalent–organic.framework
-    | imidazolate.framework
-    | porous.coordination.polymer
-    | framework.material
+  (
+    \bTADF\b
+    | thermally.activated.delayed.fluorescence
   )
   """, re.IGNORECASE | re.VERBOSE)
 
