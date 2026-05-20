@@ -275,7 +275,8 @@ def slack_post(client: WebClient, channel: str, title: str, authors: list[str], 
     client.chat_postMessage(
         channel=channel,
         blocks=blocks,
-        text=title
+        text=title,
+        unfurl_links=False
     )
 
 
