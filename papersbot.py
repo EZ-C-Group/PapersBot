@@ -24,6 +24,10 @@ import filetype
 import tweepy
 from mastodon import Mastodon, MastodonError
 
+try:
+    from slack_sdk import WebClient
+except ImportError:
+    pass
 
 # This is the regular expression that selects the papers of interest
 regex = re.compile(r"""
@@ -162,6 +166,135 @@ def bluesky_post_with_links(client, text, image_file):
     )
 
 
+def determine_authors(entry):
+    """
+    """
+    if "authors" not in entry or not isinstance(entry.authors, list):
+        return []
+    
+    authors = []
+    for author_section in entry.authors:
+        if "name" not in author_section:
+            continue
+        
+        # Some journals list all authors together.
+        for name in author_section.name.split(","):
+            authors.append(name.replace("\n", "").replace("and", "").strip())
+    
+    return authors
+
+
+def slack_post(client: WebClient, channel: str, title: str, authors: list[str], journal: str | None = None, url: str | None = None, image_url: str | None = None):
+    """
+    Post to a slack channel, optionally including an image.
+    """
+    # Build up our message blocks.
+    blocks = [
+        {
+			"type": "rich_text",
+			"elements": [
+				{
+					"type": "rich_text_section",
+					"elements": [
+						{
+							"type": "text",
+							"text": title,
+							"style": {
+								"bold": True
+							}
+						}
+					]
+				}
+			]
+		},
+    ]
+
+    if len(authors):
+        author_string = ", ".join(authors[:-1])
+        if len(authors) > 1:
+            author_string += " and {}".format(authors[-1])
+        else:
+            author_string = authors[0]
+        
+        blocks.append(
+            {
+                "type": "rich_text",
+                "elements": [
+                    {
+                        "type": "rich_text_section",
+                        "elements": [
+                            {
+                                "type": "text",
+                                "text": author_string
+                            },
+                        ]
+                    }
+                ]
+            }
+        )
+    
+    if journal:
+        blocks.append(
+            {
+                "type": "rich_text",
+                "elements": [
+                    {
+                        "type": "rich_text_section",
+                        "elements": [
+                            {
+                                "type": "text",
+                                "text": journal,
+                                "style": {
+                                    "italic": True
+                                }
+                            },
+                        ]
+                    }
+                ]
+            }
+        )
+    
+    if image_url:
+        blocks.append({
+			"type": "image",
+			"image_url": image_url,
+			"alt_text": "article image"
+		})
+    else:
+        exit(1)
+    
+    if url:
+        blocks.append(
+        {
+			"type": "section",
+			"text": {
+				"type": "mrkdwn",
+				"text": "<{}|Read more>".format(url)
+			}
+		}
+        )
+    
+    client.chat_postMessage(
+        channel=channel,
+        blocks=blocks,
+        text=title
+    )
+
+
+    # if not image_file:
+    #     return
+    #     client.chat_postMessage(
+    #             channel=channel,
+    #             text=text,
+    #         )
+    # else:
+    #     client.files_upload_v2(
+    #         channel=channel,
+    #         title="Image",
+    #         file=image_file,
+    #         initial_comment=text
+    #     )
+
 # Connect to Twitter and authenticate
 #   Credentials are passed in the environment,
 #   or stored in "credentials.yml" which contains four lines:
@@ -248,6 +381,30 @@ def initBluesky():
     return bluesky
 
 
+# Connect to Slack
+#   Credentials are passed in the environment,
+#   or stored in "slack_credentials.yml" which contains two lines:
+# SLACK_CHANNEL_ID: #D1A9GEPML6O
+# SLACK_BOT_TOKEN: xxx
+#
+def initSlack():
+    if 'SLACK_BOT_TOKEN' in os.environ:
+        channel = os.environ['SLACK_CHANNEL_ID']
+        token = os.environ['SLACK_BOT_TOKEN']
+    else:
+        with open("slack_credentials.yml", "r") as f:
+            data = yaml.safe_load(f)
+            channel = data['CHANNEL_ID']
+            token = data['BOT_TOKEN']
+    
+    slack = WebClient(token=token)
+    slack.auth_test()
+
+    print("Slack authentification worked")
+    return slack, channel
+
+
+
 # Read our list of feeds from file
 def readFeedsList():
     with open("feeds.txt", "r") as f:
@@ -316,11 +473,19 @@ class PapersBot:
             except Exception:
                 print('Did not connect to Mastodon')
                 self.mastodon = None
+            # Try to connect to Slack.
+            try:
+                self.slack, self.slack_channel = initSlack()
+            except Exception:
+                print('Did not connect to Slack')
+                self.slack, self.slack_channel = None, None
         else:
             self.api_v1 = None
             self.api_v2 = None
             self.bluesky = None
             self.mastodon = None
+            self.slack = None
+            self.slack_channel = None
 
         # Maximum shortened URL length (previously short_url_length_https)
         urllen = 23
@@ -406,6 +571,20 @@ class PapersBot:
                 self.mastodon.status_post(tweet_body, media_ids=mastodon_media)
             except MastodonError as e:
                 print(f"ERROR: Toot refused: {e}\n")
+                sys.exit(1)
+        if self.slack:
+            try:
+                slack_post(
+                    self.slack,
+                    self.slack_channel,
+                    title,
+                    determine_authors(entry),
+                    entry.prism_publicationname if "prism_publicationname" in entry else None,
+                    url,
+                    image
+                )
+            except Exception as e:
+                print(f"ERROR: Slack post refused: {e}\n")
                 sys.exit(1)
 
         self.addToPosted(entry.id)
