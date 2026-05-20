@@ -260,8 +260,6 @@ def slack_post(client: WebClient, channel: str, title: str, authors: list[str], 
 			"image_url": image_url,
 			"alt_text": "article image"
 		})
-    else:
-        exit(1)
     
     if url:
         blocks.append(
